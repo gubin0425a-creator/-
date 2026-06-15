@@ -1,0 +1,2017 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPA 소스코드 및 에셋 디컴파일러 (IPA Analyzer & Decompiler)</title>
+    <!-- Tailwind CSS (v3) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- JSZip for Client-side extraction -->
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <!-- JS-Beautify for formatting minified JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.14.7/beautify.min.js"></script>
+    <!-- PrismJS for Syntax Highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-markup.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-css.min.js"></script>
+    
+    <style>
+        /* Modern Glassmorphic Scrollbars */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1e293b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+        /* Offline Preview fallback styles (mimicking basic styles in case CDN is blocked) */
+        .terminal-log {
+            font-family: 'Courier New', Courier, monospace;
+        }
+        .code-container {
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+    </style>
+</head>
+<body class="bg-[#0f172a] text-slate-100 min-h-screen flex flex-col font-sans select-none antialiased">
+
+    <!-- TOP HEADER BAR -->
+    <header class="border-b border-slate-800 bg-[#0f172a]/95 backdrop-blur-md px-4 py-3 md:px-6 md:py-4 flex items-center justify-between sticky top-0 z-50">
+        <div class="flex items-center space-x-2 sm:space-x-3">
+            <div class="bg-gradient-to-tr from-emerald-500 to-teal-400 p-2 rounded-lg sm:p-2.5 sm:rounded-xl shadow-lg shadow-emerald-500/20">
+                <i class="fa-solid fa-box-archive text-slate-950 text-base sm:text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-sm sm:text-lg font-bold tracking-tight text-white flex items-center gap-1.5 sm:gap-2">
+                    IPA Analyzer
+                    <span class="text-[10px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded-full font-semibold border border-emerald-500/20">v1.2</span>
+                </h1>
+                <p class="text-[10px] sm:text-xs text-slate-400 hidden sm:block">iOS IPA 소스코드 디컴파일 및 에셋 리버스 엔지니어링 분석기</p>
+            </div>
+        </div>
+
+        <!-- MODE STATUS INDICATOR -->
+        <div class="flex items-center space-x-2 sm:space-x-4 text-xs sm:text-sm">
+            <div id="connectionStatus" class="flex items-center space-x-1.5 sm:space-x-2 bg-slate-800/80 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-slate-700/50">
+                <span class="relative flex h-2 w-2 sm:h-2.5 sm:w-2.5">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span id="statusIndicator" class="relative inline-flex rounded-full h-2 w-2 sm:h-2.5 sm:w-2.5 bg-amber-500"></span>
+                </span>
+                <span id="statusText" class="text-[10px] sm:text-xs font-semibold text-amber-400">서버 연결...</span>
+            </div>
+            <button id="resetAppBtn" class="hidden px-2.5 py-1 sm:px-3 sm:py-1.5 bg-rose-600/10 text-rose-400 border border-rose-500/20 rounded-lg hover:bg-rose-600 hover:text-white transition-all text-[10px] sm:text-xs font-semibold flex items-center gap-1 sm:gap-1.5">
+                <i class="fa-solid fa-rotate-left"></i> <span class="hidden sm:inline">다른 IPA 분석하기</span><span class="inline sm:hidden">리셋</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN INTERFACE CONTAINER -->
+    <main class="flex-1 flex flex-col min-h-0 relative">
+
+        <!-- 1. LANDING/UPLOAD STATE -->
+        <div id="uploadState" class="flex-1 flex flex-col items-center justify-center p-6 max-w-4xl mx-auto w-full transition-all duration-300">
+            
+            <div class="text-center mb-8">
+                <h2 class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-indigo-400 mb-2">
+                    iOS IPA 파일을 소스코드로 해체하세요
+                </h2>
+                <p class="text-slate-400 max-w-xl mx-auto">
+                    IPA 파일을 브라우저에 끌어다 놓기만 하면 즉시 압축이 해제되고, 설정 파일(Info.plist) 분석, 리소스 에셋 추출, 웹 소스코드 복구 및 바이너리 텍스트(Strings) 디컴파일이 100% 로컬에서 실행됩니다.
+                </p>
+            </div>
+
+            <!-- DRAG AND DROP AREA -->
+            <label id="dropZone" class="w-full border-2 border-dashed border-slate-700 hover:border-emerald-500/70 bg-slate-900/40 hover:bg-slate-900/60 transition-all rounded-2xl p-6 sm:p-12 flex flex-col items-center justify-center cursor-pointer group relative overflow-hidden">
+                <input type="file" id="ipaFileInput" accept=".ipa" class="hidden" />
+                <div class="bg-slate-800/80 group-hover:bg-emerald-500/10 p-5 rounded-2xl mb-4 text-slate-400 group-hover:text-emerald-400 transition-all shadow-inner border border-slate-700/50 group-hover:border-emerald-500/20">
+                    <i class="fa-solid fa-cloud-arrow-up text-3xl sm:text-4xl animate-bounce"></i>
+                </div>
+                <p class="text-sm sm:text-base font-semibold text-slate-200 text-center">IPA 파일을 드래그하거나 터치하여 선택</p>
+                <p class="text-[10px] sm:text-xs text-slate-500 mt-2 text-center">최대 용량 제한 없음 • 100% Client-Side 안전 분석 보장</p>
+                
+                <!-- Glow Effect background -->
+                <div class="absolute -inset-x-20 -inset-y-20 bg-gradient-to-tr from-emerald-500/5 to-teal-500/5 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
+            </label>
+
+            <!-- EXTRA TECH SPEC NOTE -->
+            <div class="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
+                <div class="bg-slate-900/50 p-4 rounded-xl border border-slate-800 flex items-start gap-3">
+                    <i class="fa-solid fa-shield-halved text-emerald-400 text-lg mt-0.5"></i>
+                    <div>
+                        <h4 class="text-sm font-semibold text-slate-200">100% 오프라인 안전성</h4>
+                        <p class="text-xs text-slate-500 mt-1">파일이 외부 서버로 업로드되지 않으므로, 중요한 기업용 앱이나 상용 소스코드가 절대로 유출되지 않습니다.</p>
+                    </div>
+                </div>
+                <div class="bg-slate-900/50 p-4 rounded-xl border border-slate-800 flex items-start gap-3">
+                    <i class="fa-solid fa-wand-magic-sparkles text-cyan-400 text-lg mt-0.5"></i>
+                    <div>
+                        <h4 class="text-sm font-semibold text-slate-200">하이브리드 앱 복구</h4>
+                        <p class="text-xs text-slate-500 mt-1">React Native, Flutter, Cordova 등으로 제작된 앱의 원본 웹 소스코드 및 JS 번들을 구조화하여 완벽 시각화합니다.</p>
+                    </div>
+                </div>
+                <div class="bg-slate-900/50 p-4 rounded-xl border border-slate-800 flex items-start gap-3">
+                    <i class="fa-solid fa-terminal text-amber-400 text-lg mt-0.5"></i>
+                    <div>
+                        <h4 class="text-sm font-semibold text-slate-200">바이너리 문자열 검색</h4>
+                        <p class="text-xs text-slate-500 mt-1">컴파일된 Mach-O 실행 이진 파일 내의 모든 문자열(Strings)을 스캔해 API Endpoint, 패스워드 등을 탐색합니다.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TERMINAL LOG DISPLAY -->
+            <div id="logConsoleContainer" class="hidden w-full mt-6 bg-slate-950 rounded-xl border border-slate-800 p-4 shadow-xl">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
+                    <span class="text-xs text-slate-400 font-semibold flex items-center gap-2">
+                        <i class="fa-solid fa-terminal text-emerald-400 animate-pulse"></i> 실시간 디컴파일 로그
+                    </span>
+                    <span id="extractionProgressText" class="text-xs text-emerald-400 font-bold">0%</span>
+                </div>
+                <div class="w-full bg-slate-900 h-2 rounded-full overflow-hidden mb-3">
+                    <div id="extractionProgressBar" class="h-full bg-gradient-to-r from-emerald-500 to-teal-400 w-0 transition-all duration-200"></div>
+                </div>
+                <div id="logConsole" class="terminal-log text-[11px] text-slate-300 h-32 overflow-y-auto space-y-1 scrollbar-thin">
+                    <!-- Logs inserted dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. ACTIVE DASHBOARD STATE -->
+        <div id="dashboardState" class="hidden flex-1 flex lg:flex-row flex-col overflow-hidden">
+            
+            <!-- LEFT PANEL: FILE TREE & SUMMARY -->
+            <aside id="sidebarPanel" class="w-full lg:w-80 border-r border-slate-800 bg-[#0b0f19] flex flex-col min-h-0 select-none shrink-0">
+                
+                <!-- APP QUICK METADATA CARD -->
+                <div class="p-4 border-b border-slate-800 bg-[#0d1424]">
+                    <div class="flex items-center space-x-3">
+                        <div id="appIconPlaceholder" class="w-14 h-14 bg-gradient-to-br from-slate-700 to-slate-800 rounded-2xl flex items-center justify-center border border-slate-600/30 overflow-hidden shadow-inner shrink-0">
+                            <i class="fa-brands fa-apple text-3xl text-slate-400"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <h3 id="summaryAppName" class="text-sm font-bold text-white truncate">App Name</h3>
+                            <p id="summaryBundleId" class="text-[11px] text-slate-400 truncate mt-0.5">com.bundle.id</p>
+                            <div class="flex items-center gap-1.5 mt-1">
+                                <span id="summaryFrameworkBadge" class="text-[9px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider bg-indigo-600/20 text-indigo-400 border border-indigo-500/20">Native</span>
+                                <span id="summaryVersion" class="text-[10px] text-slate-400 font-medium">1.0.0 (1)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- DIRECTORY TREE CONTROLS -->
+                <div class="p-3 border-b border-slate-800 space-y-2">
+                    <!-- File Search -->
+                    <div class="relative">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-xs text-slate-500"></i>
+                        <input type="text" id="fileSearchInput" placeholder="파일 경로 검색..." class="w-full bg-slate-900 border border-slate-800 rounded-lg py-1.5 pl-8 pr-3 text-xs text-slate-300 focus:outline-none focus:border-emerald-500/50 placeholder-slate-500" />
+                    </div>
+                    <!-- Quick actions -->
+                    <div class="flex items-center justify-between text-[11px] text-slate-400">
+                        <span id="totalFilesCount" class="font-medium">총 0개 파일</span>
+                        <button id="toggleAllFoldersBtn" class="hover:text-emerald-400 transition-colors flex items-center gap-1">
+                            <i class="fa-solid fa-folder-minus"></i> 폴더 전체 접기
+                        </button>
+                    </div>
+                </div>
+
+                <!-- INTERACTIVE FILE TREE ELEMENT -->
+                <div class="flex-1 overflow-y-auto p-2" id="fileTreeContainer">
+                    <!-- JavaScript populates file tree here -->
+                </div>
+            </aside>
+
+            <!-- CENTRAL MAIN WORKSPACE -->
+            <section id="mainContentPanel" class="flex-1 flex flex-col min-h-0 bg-[#0d111d] overflow-hidden">
+                
+                <!-- WORKSPACE HEAD TAB BAR -->
+                <div class="border-b border-slate-800/80 bg-[#090d16] px-3 py-2 sm:px-4 flex items-center justify-between shrink-0">
+                    <div class="flex items-center space-x-1.5 sm:space-x-2 text-xs text-slate-300 min-w-0">
+                        <!-- Mobile Back Button -->
+                        <button id="mobileBackToTreeBtn" class="lg:hidden mr-1.5 px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded text-xs text-slate-300 flex items-center gap-1 shrink-0">
+                            <i class="fa-solid fa-chevron-left"></i> 목록
+                        </button>
+                        <!-- Navigation Path Breadcrumbs -->
+                        <i class="fa-solid fa-folder-open text-emerald-400 shrink-0"></i>
+                        <span id="activeFileBreadcrumb" class="font-mono truncate select-all">IPA 업로드 완료. 탐색기에서 파일을 선택해 주십시오.</span>
+                    </div>
+
+                    <!-- VIEW UTILITIES -->
+                    <div id="fileUtilities" class="hidden flex items-center space-x-1.5 sm:space-x-2 shrink-0">
+                        <!-- JS Format Button for React Native/Minified files -->
+                        <button id="beautifyJsBtn" class="hidden px-2 py-1 bg-teal-500/10 hover:bg-teal-500/20 text-teal-400 border border-teal-500/20 rounded text-[11px] font-semibold transition-all flex items-center gap-1">
+                            <i class="fa-solid fa-code"></i> <span class="hidden sm:inline">정렬 (Format JS)</span>
+                        </button>
+                        <!-- Copy Code Button -->
+                        <button id="copyContentBtn" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded text-[11px] font-semibold transition-all flex items-center gap-1">
+                            <i class="fa-solid fa-copy"></i> <span class="hidden sm:inline">복사</span>
+                        </button>
+                        <!-- Download file button -->
+                        <button id="downloadFileBtn" class="px-2 py-1 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/20 rounded text-[11px] font-semibold transition-all flex items-center gap-1">
+                            <i class="fa-solid fa-download"></i> <span class="hidden sm:inline">다운로드</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- MULTI-TAB NAVIGATION CONTENT AREA -->
+                <div class="flex-1 overflow-hidden flex flex-col relative">
+
+                    <!-- OVERVIEW TABS CONTROLLER -->
+                    <div class="bg-[#0b0e17] px-2 sm:px-4 py-1 flex border-b border-slate-800 shrink-0 text-xs overflow-x-auto scrollbar-none whitespace-nowrap">
+                        <button id="tabOverviewBtn" class="px-4 py-2 text-emerald-400 border-b-2 border-emerald-400 font-bold transition-all mr-2 flex items-center gap-1.5">
+                            <i class="fa-solid fa-circle-info"></i> 앱 분석 대시보드
+                        </button>
+                        <button id="tabViewerBtn" class="px-4 py-2 text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-all mr-2 flex items-center gap-1.5">
+                            <i class="fa-solid fa-code"></i> 소스코드 뷰어
+                        </button>
+                        <button id="tabStringsBtn" class="px-4 py-2 text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-all flex items-center gap-1.5">
+                            <i class="fa-solid fa-signature"></i> 바이너리 문자열 (Strings Extraction)
+                        </button>
+                    </div>
+
+                    <!-- TAB 1: OVERVIEW DASHBOARD -->
+                    <div id="tabContentOverview" class="flex-1 overflow-y-auto p-6 space-y-6">
+                        
+                        <!-- APP BIG OVERVIEW INFO GRID -->
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div class="bg-slate-900/40 border border-slate-800 p-4 rounded-xl">
+                                <p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">사용 프레임워크 (Framework)</p>
+                                <p id="dashboardFramework" class="text-lg font-extrabold text-indigo-400 mt-1">Analyzing...</p>
+                            </div>
+                            <div class="bg-slate-900/40 border border-slate-800 p-4 rounded-xl">
+                                <p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">패키지 번들 ID (Bundle Identifier)</p>
+                                <p id="dashboardBundleId" class="text-sm font-bold text-slate-200 truncate mt-2 select-all">Analyzing...</p>
+                            </div>
+                            <div class="bg-slate-900/40 border border-slate-800 p-4 rounded-xl">
+                                <p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">앱 버전 (Short Version / Build)</p>
+                                <p id="dashboardVersion" class="text-sm font-bold text-slate-200 mt-2">Analyzing...</p>
+                            </div>
+                            <div class="bg-slate-900/40 border border-slate-800 p-4 rounded-xl">
+                                <p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider">요구 iOS 최소 버전</p>
+                                <p id="dashboardMinOs" class="text-sm font-bold text-slate-200 mt-2">Analyzing...</p>
+                            </div>
+                        </div>
+
+                        <!-- EXPORT ALL AS ZIP CARD -->
+                        <div class="bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-slate-900/40 border border-emerald-500/20 p-5 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 shadow-lg shadow-emerald-950/20">
+                            <div class="flex items-center gap-4">
+                                <div class="bg-emerald-500/10 p-3 rounded-xl border border-emerald-500/30 text-emerald-400 text-2xl shrink-0">
+                                    <i class="fa-solid fa-file-zipper"></i>
+                                </div>
+                                <div>
+                                    <h4 class="text-sm font-bold text-slate-100">모든 소스코드 및 에셋 일괄 추출</h4>
+                                    <p class="text-xs text-slate-400 mt-0.5">IPA 내의 모든 웹 소스코드, 이미지 리소스, 번역 텍스트, 설정 파일을 하나로 묶어 ZIP으로 소장합니다.</p>
+                                </div>
+                            </div>
+                            <button id="exportAllCodeBtn" class="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs tracking-wide rounded-xl shadow-lg shadow-emerald-500/10 hover:shadow-emerald-500/25 transition-all flex items-center gap-2">
+                                <i class="fa-solid fa-file-export text-sm"></i> 코드/리소스 일괄 ZIP 다운로드
+                            </button>
+                        </div>
+
+                        <!-- AI VIBE CODING CONTEXT BUILDER CARD -->
+                        <div class="bg-gradient-to-r from-indigo-500/15 via-purple-500/5 to-slate-900/40 border border-indigo-500/30 p-5 rounded-2xl shadow-lg shadow-indigo-950/15 space-y-4">
+                            <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                                <div class="flex items-center gap-4">
+                                    <div class="bg-indigo-500/10 p-3 rounded-xl border border-indigo-500/30 text-indigo-400 text-2xl shrink-0">
+                                        <i class="fa-solid fa-robot animate-pulse"></i>
+                                    </div>
+                                    <div>
+                                        <h4 class="text-sm font-bold text-slate-100">🤖 AI 바이브 코딩 (Vibe Coding) 통합 컨텍스트 빌더</h4>
+                                        <p class="text-xs text-slate-400 mt-0.5">IPA 내의 모든 텍스트 소스코드(HTML, JS, CSS, JSON, Plist 등)를 하나의 파일로 병합하여 AI(Claude, ChatGPT, Cursor) 프롬프트에 바로 붙여넣을 수 있게 가공합니다.</p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-2 w-full md:w-auto shrink-0">
+                                    <button id="copyAiPromptBtn" class="flex-1 md:flex-none px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/10 transition-all flex items-center justify-center gap-1.5 cursor-pointer">
+                                        <i class="fa-solid fa-clipboard"></i> AI 프롬프트용 전체 복사
+                                    </button>
+                                    <button id="downloadAiPromptBtn" class="flex-1 md:flex-none px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-100 font-bold text-xs rounded-xl border border-slate-700 transition-all flex items-center justify-center gap-1.5 cursor-pointer">
+                                        <i class="fa-solid fa-file-lines"></i> 통합 파일(.txt) 다운로드
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-lg text-[11px] text-slate-400 leading-relaxed flex items-center gap-2">
+                                <i class="fa-solid fa-sparkles text-indigo-400 shrink-0"></i>
+                                <span>이미지, 폰트, 무거운 바이너리 바이패스 필터를 자동 거쳐 <strong>오직 핵심 코드 및 디코딩 설정</strong>만 압축 추출하므로 프롬프트 토큰 절약에 최적화되어 있습니다!</span>
+                            </div>
+                        </div>
+
+                        <!-- DETECTED FEATURES / PERMISSIONS & plist DETAILS -->
+                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            
+                            <!-- PERMISSIONS TABLE (NSUsageDescriptions) -->
+                            <div class="bg-slate-900/30 border border-slate-800 rounded-xl p-5">
+                                <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2 mb-4">
+                                    <i class="fa-solid fa-shield-halved text-amber-500"></i> 앱 보안 권한 승인 요청 목록
+                                </h3>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-xs text-left">
+                                        <thead>
+                                            <tr class="border-b border-slate-800 text-slate-400 font-bold">
+                                                <th class="pb-2 w-1/2 sm:w-1/3">권한 목적</th>
+                                                <th class="pb-2 w-1/3 hidden sm:table-cell">Info.plist 식별키</th>
+                                                <th class="pb-2">보안 팝업 문구 (설명)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="permissionsTableBody" class="divide-y divide-slate-800 text-slate-300">
+                                            <!-- Permissions inserted dynamically -->
+                                            <tr>
+                                                <td colspan="3" class="py-4 text-center text-slate-500">감지된 권한 승인 항목이 없습니다.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- TECHNICAL ENVIRONMENT SPECIFICATIONS -->
+                            <div class="bg-slate-900/30 border border-slate-800 rounded-xl p-5 space-y-4">
+                                <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                                    <i class="fa-solid fa-gears text-indigo-400"></i> 개발 에코시스템 및 플랫폼 상세
+                                </h3>
+                                
+                                <div class="space-y-2.5 text-xs">
+                                    <div class="flex justify-between py-1.5 border-b border-slate-800/60">
+                                        <span class="text-slate-400">바이너리 실행 파일명</span>
+                                        <span id="metaExecutableName" class="font-mono text-slate-200 font-semibold">Analyzing...</span>
+                                    </div>
+                                    <div class="flex justify-between py-1.5 border-b border-slate-800/60">
+                                        <span class="text-slate-400">iOS SDK Target Name</span>
+                                        <span id="metaSdkName" class="text-slate-200 font-semibold">Analyzing...</span>
+                                    </div>
+                                    <div class="flex justify-between py-1.5 border-b border-slate-800/60">
+                                        <span class="text-slate-400">하이브리드 엔진 감지</span>
+                                        <span id="metaFrameworkDetailed" class="text-slate-200 font-semibold">Analyzing...</span>
+                                    </div>
+                                    <div class="flex justify-between py-1.5">
+                                        <span class="text-slate-400">보안 샌드박스 보안성</span>
+                                        <span class="text-emerald-400 font-semibold flex items-center gap-1">
+                                            <i class="fa-solid fa-shield text-[10px]"></i> Local Client Isolated
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-lg text-[11px] text-slate-400 leading-relaxed">
+                                    <p class="font-bold text-indigo-300 mb-1 flex items-center gap-1">
+                                        <i class="fa-solid fa-circle-exclamation"></i> 하이브리드 앱 복구 관련 가이드
+                                    </p>
+                                    - <strong>React Native</strong>: 탐색기에서 <code>main.jsbundle</code> 파일을 선택하면 원본 JavaScript 소스코드가 완전 복원되며, 상단 <strong>[Format JS]</strong> 버튼을 통해 읽기 편하게 디컴파일 정렬을 수행할 수 있습니다.<br>
+                                    - <strong>Cordova/Ionic/Capacitor</strong>: 앱 내부의 <code>www/</code> 혹은 <code>public/</code> 디렉토리에 포함된 HTML, JavaScript, CSS 파일들이 온전히 존재하며, 클릭 즉시 완전한 원본 소스코드를 즉시 조회/추출할 수 있습니다.
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- TAB 2: CODE VIEWER -->
+                    <div id="tabContentViewer" class="hidden flex-1 overflow-hidden flex">
+                        <!-- EMPTY STATE FOR CODE VIEWER -->
+                        <div id="viewerEmptyState" class="flex-1 flex flex-col items-center justify-center p-6 text-center">
+                            <div class="bg-slate-900/50 p-4 rounded-full text-slate-500 text-3xl mb-3 border border-slate-800">
+                                <i class="fa-solid fa-file-code"></i>
+                            </div>
+                            <h4 class="text-sm font-semibold text-slate-300">선택된 소스코드 없음</h4>
+                            <p class="text-xs text-slate-500 max-w-xs mt-1">왼쪽 에셋/소스코드 탐색기 트리에서 조회하고자 하는 파일(.js, .html, .plist, .strings, .json 등)을 클릭하십시오.</p>
+                        </div>
+
+                        <!-- ACTUAL FILE VIEW CONTROLLERS -->
+                        <div id="viewerActiveState" class="hidden flex-1 flex flex-col min-h-0">
+                            
+                            <!-- SOURCE CODE TEXT HIGHLIGHTER -->
+                            <div id="codeViewContainer" class="flex-1 overflow-auto bg-[#111726] p-4 text-xs font-mono relative leading-relaxed">
+                                <pre class="m-0 h-full"><code id="codeViewerArea" class="language-javascript"></code></pre>
+                            </div>
+
+                            <!-- IMAGE VIEWER -->
+                            <div id="imageViewContainer" class="hidden flex-1 flex-col items-center justify-center p-8 bg-[#0a0d14]">
+                                <div class="bg-[#111726] p-6 rounded-2xl border border-slate-800 shadow-xl max-w-lg flex flex-col items-center">
+                                    <!-- Image Element -->
+                                    <div class="relative bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:16px_16px] border border-slate-700/30 p-4 rounded-lg flex items-center justify-center">
+                                        <img id="imageViewerElement" src="" alt="Asset Image" class="max-h-80 max-w-full rounded shadow" />
+                                    </div>
+                                    <div class="mt-4 text-center">
+                                        <p id="imageFilename" class="text-sm font-bold text-slate-200">image.png</p>
+                                        <p id="imageMime" class="text-xs text-slate-500 mt-0.5">image/png</p>
+                                    </div>
+                                </div>
+                                <p class="text-slate-500 text-[11px] mt-4 max-w-sm text-center">
+                                    ※ iOS 앱 고유의 최적화 압축인 <code>CgBI</code> 포맷 PNG 이미지는 일반 웹 브라우저에서 올바르게 로드되지 않고 깨질 수 있으며, 이 경우 우측 상단 개별 다운로드 버튼을 눌러 로컬 기기에서 전용 도구로 조회하십시오.
+                                </p>
+                            </div>
+
+                            <!-- PLIST INTERACTIVE OBJECT TREE VIEWER -->
+                            <div id="plistViewContainer" class="hidden flex-1 overflow-auto bg-[#111726] p-6 text-xs">
+                                <div class="border-b border-slate-800 pb-3 mb-4">
+                                    <span class="text-emerald-400 font-bold uppercase tracking-wider text-[10px] bg-emerald-400/10 px-2 py-0.5 rounded border border-emerald-500/20">JSON/Plist Structure</span>
+                                </div>
+                                <pre id="plistJsonArea" class="text-slate-300 font-mono leading-relaxed select-all whitespace-pre-wrap"></pre>
+                            </div>
+
+                        </div>
+                    </div>
+
+                    <!-- TAB 3: BINARY STRINGS EXTRACTION -->
+                    <div id="tabContentStrings" class="hidden flex-1 overflow-hidden flex flex-col p-6 space-y-4">
+                        <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+                            <div>
+                                <h3 class="text-sm font-bold text-slate-200 flex items-center gap-2">
+                                    <i class="fa-solid fa-signature text-amber-500"></i> Mach-O 바이너리 Strings 디컴파일
+                                </h3>
+                                <p class="text-[11px] text-slate-400 mt-1">컴파일된 iOS 네이티브 실행 바이너리 기계어 내부에 포함된 모든 Printable ASCII 텍스트 데이터를 검색합니다.</p>
+                            </div>
+                            <div id="stringsServerAlert" class="hidden bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 rounded-lg flex items-center gap-2">
+                                <i class="fa-solid fa-triangle-exclamation text-amber-500 text-xs"></i>
+                                <span class="text-[11px] text-amber-400 font-medium">로컬 Python 서버를 구동하면 대용량 바이너리에서 문자열 스캔이 정밀 지원됩니다.</span>
+                            </div>
+                        </div>
+
+                        <!-- SEARCH WITHIN STRINGS -->
+                        <div class="relative max-w-md w-full">
+                            <i class="fa-solid fa-filter absolute left-3 top-2.5 text-xs text-slate-500"></i>
+                            <input type="text" id="stringsSearchInput" placeholder="추출된 문자열 검색 (예: http, key, api, Class)..." class="w-full bg-slate-900 border border-slate-800 rounded-lg py-1.5 pl-8 pr-3 text-xs text-slate-300 focus:outline-none focus:border-amber-500/50" />
+                        </div>
+
+                        <!-- LIST OF EXTRACTED STRINGS -->
+                        <div class="flex-1 bg-[#111726] border border-slate-800 rounded-xl overflow-hidden flex flex-col">
+                            <div class="grid grid-cols-12 bg-slate-900/60 px-4 py-2 border-b border-slate-800 text-[10px] text-slate-400 font-bold tracking-wider">
+                                <div class="col-span-2">INDEX</div>
+                                <div class="col-span-10">PRINTABLE STRING</div>
+                            </div>
+                            <div id="stringsListArea" class="flex-1 overflow-y-auto divide-y divide-slate-800/40 font-mono text-xs text-slate-300 scrollbar-thin">
+                                <!-- Dynamic Strings insert -->
+                                <div class="p-6 text-center text-slate-500">바이너리 분석이 필요합니다. 먼저 에셋 탐색기에서 앱 실행 바이너리 파일을 클릭하여 Strings 추출을 명령하거나, Overview 대시보드의 실행 파일명을 확인해 주십시오.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+        </div>
+
+    </main>
+
+    <!-- FLOATING LOADING OVERLAY -->
+    <div id="loadingOverlay" class="hidden fixed inset-0 bg-[#090d16]/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center space-y-4">
+        <div class="relative flex items-center justify-center">
+            <div class="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-400 rounded-full animate-spin"></div>
+            <i class="fa-brands fa-apple text-emerald-400 text-2xl absolute"></i>
+        </div>
+        <div class="text-center">
+            <h3 class="text-base font-bold text-white">IPA 분석 및 압축해제 중...</h3>
+            <p id="loadingStatusText" class="text-xs text-slate-400 mt-1">잠시만 기다려주세요 (파일 용량에 따라 최대 1~2분이 소요될 수 있습니다)</p>
+        </div>
+    </div>
+
+    <!-- SCRIPT LOGIC -->
+    <script type="module">
+        // Import robust plist parser from ES module!
+        let plistParser = null;
+        try {
+            const plistModule = await import('https://esm.sh/@plist/parse');
+            plistParser = plistModule.parse;
+            console.log("Successfully loaded ESM plistParser from esm.sh");
+        } catch (err) {
+            console.error("Failed to dynamically import @plist/parse. Falling back to XML-only plist parsing.", err);
+        }
+
+        // Global State variables
+        let appMode = 'client'; // 'client' or 'backend'
+        const PORT = 8080;
+        const apiHost = `http://localhost:${PORT}`;
+        
+        let clientZipInstance = null; // JSZip instance for client-side mode
+        let activeZipFiles = {}; // Path -> JSZip Object mapping
+        let appMetadata = null; // Stored metadata
+        let activeFileContent = null; // Caching content of currently viewed file
+        let activeFilePath = null; // Track current file
+        let allFilePathsList = []; // Track list of files for tree filter
+        let currentExtractedBinaryStrings = []; // Cache binary strings
+        let currentTreeData = null; // Store current tree structure
+        
+        let activeMobileView = 'tree'; // 'tree' or 'content'
+
+        // DOM elements
+        const sidebarPanel = document.getElementById('sidebarPanel');
+        const mainContentPanel = document.getElementById('mainContentPanel');
+        const mobileBackToTreeBtn = document.getElementById('mobileBackToTreeBtn');
+        
+        const connectionStatus = document.getElementById('connectionStatus');
+        const statusIndicator = document.getElementById('statusIndicator');
+        const statusText = document.getElementById('statusText');
+        const resetAppBtn = document.getElementById('resetAppBtn');
+        const uploadState = document.getElementById('uploadState');
+        const dashboardState = document.getElementById('dashboardState');
+        const dropZone = document.getElementById('dropZone');
+        const ipaFileInput = document.getElementById('ipaFileInput');
+        const logConsoleContainer = document.getElementById('logConsoleContainer');
+        const logConsole = document.getElementById('logConsole');
+        const extractionProgressBar = document.getElementById('extractionProgressBar');
+        const extractionProgressText = document.getElementById('extractionProgressText');
+        const fileTreeContainer = document.getElementById('fileTreeContainer');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadingStatusText = document.getElementById('loadingStatusText');
+        
+        // Dashboard labels
+        const summaryAppName = document.getElementById('summaryAppName');
+        const summaryBundleId = document.getElementById('summaryBundleId');
+        const summaryFrameworkBadge = document.getElementById('summaryFrameworkBadge');
+        const summaryVersion = document.getElementById('summaryVersion');
+        const fileSearchInput = document.getElementById('fileSearchInput');
+        const totalFilesCount = document.getElementById('totalFilesCount');
+        const activeFileBreadcrumb = document.getElementById('activeFileBreadcrumb');
+        
+        // Tabs
+        const tabOverviewBtn = document.getElementById('tabOverviewBtn');
+        const tabViewerBtn = document.getElementById('tabViewerBtn');
+        const tabStringsBtn = document.getElementById('tabStringsBtn');
+        const tabContentOverview = document.getElementById('tabContentOverview');
+        const tabContentViewer = document.getElementById('tabContentViewer');
+        const tabContentStrings = document.getElementById('tabContentStrings');
+        
+        // Viewer Panels
+        const viewerEmptyState = document.getElementById('viewerEmptyState');
+        const viewerActiveState = document.getElementById('viewerActiveState');
+        const codeViewContainer = document.getElementById('codeViewContainer');
+        const imageViewContainer = document.getElementById('imageViewContainer');
+        const plistViewContainer = document.getElementById('plistViewContainer');
+        const codeViewerArea = document.getElementById('codeViewerArea');
+        const imageViewerElement = document.getElementById('imageViewerElement');
+        const imageFilename = document.getElementById('imageFilename');
+        const imageMime = document.getElementById('imageMime');
+        const plistJsonArea = document.getElementById('plistJsonArea');
+        const fileUtilities = document.getElementById('fileUtilities');
+        const beautifyJsBtn = document.getElementById('beautifyJsBtn');
+        const copyContentBtn = document.getElementById('copyContentBtn');
+        const downloadFileBtn = document.getElementById('downloadFileBtn');
+        
+        // Dashboard Tab elements
+        const dashboardFramework = document.getElementById('dashboardFramework');
+        const dashboardBundleId = document.getElementById('dashboardBundleId');
+        const dashboardVersion = document.getElementById('dashboardVersion');
+        const dashboardMinOs = document.getElementById('dashboardMinOs');
+        const permissionsTableBody = document.getElementById('permissionsTableBody');
+        const metaExecutableName = document.getElementById('metaExecutableName');
+        const metaSdkName = document.getElementById('metaSdkName');
+        const metaFrameworkDetailed = document.getElementById('metaFrameworkDetailed');
+        const stringsServerAlert = document.getElementById('stringsServerAlert');
+        const stringsSearchInput = document.getElementById('stringsSearchInput');
+        const stringsListArea = document.getElementById('stringsListArea');
+        const exportAllCodeBtn = document.getElementById('exportAllCodeBtn');
+        const copyAiPromptBtn = document.getElementById('copyAiPromptBtn');
+        const downloadAiPromptBtn = document.getElementById('downloadAiPromptBtn');
+        const appIconPlaceholder = document.getElementById('appIconPlaceholder');
+
+        // Initial launch logic: Handshake with python backend
+        async function checkBackendConnection() {
+            try {
+                const response = await fetch(`${apiHost}/api/status`, { signal: AbortSignal.timeout(1500) });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.status === "ok") {
+                        appMode = 'backend';
+                        statusIndicator.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500";
+                        statusText.innerText = "Python 백엔드 연결 완료";
+                        statusText.className = "text-xs font-semibold text-emerald-400";
+                        stringsServerAlert.classList.add('hidden');
+                        addLog("Connected to high-performance local Python backend.");
+                        return;
+                    }
+                }
+            } catch (err) {
+                // Connection failed, default to client mode
+            }
+            
+            appMode = 'client';
+            statusIndicator.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-cyan-500 animate-pulse";
+            statusText.innerText = "웹 로컬 단독 실행 모드";
+            statusText.className = "text-xs font-semibold text-cyan-400";
+            stringsServerAlert.classList.remove('hidden');
+            addLog("Standard Client-only mode activated. ZIP unzipping and binary-plist parsing run natively in-browser.");
+        }
+
+        function addLog(message, type = 'info') {
+            const time = new Date().toLocaleTimeString();
+            let color = 'text-slate-300';
+            let prefix = '[INFO]';
+            if (type === 'error') {
+                color = 'text-rose-400';
+                prefix = '[ERR] ';
+            } else if (type === 'success') {
+                color = 'text-emerald-400';
+                prefix = '[OK]  ';
+            } else if (type === 'warn') {
+                color = 'text-amber-400';
+                prefix = '[WARN]';
+            }
+            
+            logConsole.innerHTML += `<div class="${color} font-mono">${time} ${prefix} ${message}</div>`;
+            logConsole.scrollTop = logConsole.scrollHeight;
+        }
+
+        // Run connection test on boot
+        checkBackendConnection();
+
+        // Responsive mobile layout controller
+        function updateMobileLayout() {
+            if (window.innerWidth >= 1024) {
+                // Desktop view: show both side-by-side
+                sidebarPanel.classList.remove('hidden');
+                sidebarPanel.classList.add('flex');
+                mainContentPanel.classList.remove('hidden');
+                mainContentPanel.classList.add('flex');
+                mobileBackToTreeBtn.classList.add('hidden');
+            } else {
+                // Mobile view: toggle between file explorer and main content
+                if (activeMobileView === 'tree') {
+                    sidebarPanel.classList.remove('hidden');
+                    sidebarPanel.classList.add('flex');
+                    mainContentPanel.classList.add('hidden');
+                    mainContentPanel.classList.remove('flex');
+                    mobileBackToTreeBtn.classList.add('hidden');
+                } else {
+                    sidebarPanel.classList.add('hidden');
+                    sidebarPanel.classList.remove('flex');
+                    mainContentPanel.classList.remove('hidden');
+                    mainContentPanel.classList.add('flex');
+                    mobileBackToTreeBtn.classList.remove('hidden');
+                }
+            }
+        }
+
+        // Add event listeners for mobile layout
+        window.addEventListener('resize', updateMobileLayout);
+        mobileBackToTreeBtn.addEventListener('click', () => {
+            activeMobileView = 'tree';
+            updateMobileLayout();
+        });
+
+        // Initialize mobile layout on boot
+        updateMobileLayout();
+
+        // TAB NAVIGATION CONTROLS
+        function selectTab(tab) {
+            // reset borders and colors
+            tabOverviewBtn.className = "px-4 py-2 text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-all mr-2 flex items-center gap-1.5";
+            tabViewerBtn.className = "px-4 py-2 text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-all mr-2 flex items-center gap-1.5";
+            tabStringsBtn.className = "px-4 py-2 text-slate-400 hover:text-slate-200 border-b-2 border-transparent transition-all flex items-center gap-1.5";
+            
+            tabContentOverview.classList.add('hidden');
+            tabContentViewer.classList.add('hidden');
+            tabContentStrings.classList.add('hidden');
+
+            if (tab === 'overview') {
+                tabOverviewBtn.className = "px-4 py-2 text-emerald-400 border-b-2 border-emerald-400 font-bold transition-all mr-2 flex items-center gap-1.5";
+                tabContentOverview.classList.remove('hidden');
+            } else if (tab === 'viewer') {
+                tabViewerBtn.className = "px-4 py-2 text-emerald-400 border-b-2 border-emerald-400 font-bold transition-all mr-2 flex items-center gap-1.5";
+                tabContentViewer.classList.remove('hidden');
+            } else if (tab === 'strings') {
+                tabStringsBtn.className = "px-4 py-2 text-emerald-400 border-b-2 border-emerald-400 font-bold transition-all flex items-center gap-1.5";
+                tabContentStrings.classList.remove('hidden');
+            }
+        }
+        
+        tabOverviewBtn.addEventListener('click', () => selectTab('overview'));
+        tabViewerBtn.addEventListener('click', () => selectTab('viewer'));
+        tabStringsBtn.addEventListener('click', () => selectTab('strings'));
+
+        // Drag & Drop handlers
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('border-emerald-500', 'bg-emerald-500/10');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('border-emerald-500', 'bg-emerald-500/10');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('border-emerald-500', 'bg-emerald-500/10');
+            const file = e.dataTransfer.files[0];
+            if (file && file.name.endsWith('.ipa')) {
+                processIPAFile(file);
+            } else {
+                alert('올바른 iOS IPA 파일을 업로드해 주십시오.');
+            }
+        });
+
+        ipaFileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                processIPAFile(file);
+            }
+        });
+
+        // RE-INITIALIZE / RESET APP
+        resetAppBtn.addEventListener('click', () => {
+            resetAppBtn.classList.add('hidden');
+            uploadState.classList.remove('hidden');
+            dashboardState.classList.add('hidden');
+            ipaFileInput.value = '';
+            logConsole.innerHTML = '';
+            logConsoleContainer.classList.add('hidden');
+            extractionProgressBar.style.width = '0%';
+            extractionProgressText.innerText = '0%';
+            clientZipInstance = null;
+            activeZipFiles = {};
+            appMetadata = null;
+            activeFileContent = null;
+            activeFilePath = null;
+            allFilePathsList = [];
+            currentExtractedBinaryStrings = [];
+            
+            // Reset mobile view
+            activeMobileView = 'tree';
+            updateMobileLayout();
+            
+            // Restore file empty viewer
+            viewerEmptyState.classList.remove('hidden');
+            viewerActiveState.classList.add('hidden');
+            appIconPlaceholder.innerHTML = '<i class="fa-brands fa-apple text-3xl text-slate-400"></i>';
+        });
+
+        // MAIN CONTROLLER FOR PROCESSING IPA
+        async function processIPAFile(file) {
+            logConsoleContainer.classList.remove('hidden');
+            addLog(`IPA 업로드 감지: ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)} MB)`);
+            
+            showLoading(true, "IPA 패키지 해독 중...", "파일 용량 및 로컬 사양에 따라 수초가 소요됩니다.");
+
+            if (appMode === 'backend') {
+                await processWithBackend(file);
+            } else {
+                await processWithClientOnly(file);
+            }
+        }
+
+        function showLoading(show, title = "", desc = "") {
+            if (show) {
+                loadingOverlay.classList.remove('hidden');
+                document.querySelector('#loadingOverlay h3').innerText = title;
+                loadingStatusText.innerText = desc;
+            } else {
+                loadingOverlay.classList.add('hidden');
+            }
+        }
+
+        // ============================================
+        // 1. BACKEND UPLOAD & PROCESS MODE
+        // ============================================
+        async function processWithBackend(file) {
+            addLog("Using backend processing engine. Uploading binary payload...");
+            extractionProgressBar.style.width = '20%';
+            extractionProgressText.innerText = '20%';
+
+            try {
+                const response = await fetch(`${apiHost}/api/upload`, {
+                    method: 'POST',
+                    body: file,
+                    headers: {
+                        'Content-Type': 'application/octet-stream'
+                    }
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || "Failed to process IPA inside server");
+                }
+
+                extractionProgressBar.style.width = '80%';
+                extractionProgressText.innerText = '80%';
+                addLog("Backend unzipped and parsed the file bundle successfully!", "success");
+
+                const result = await response.json();
+                appMetadata = result.metadata;
+                
+                // Build and display tree
+                allFilePathsList = [];
+                currentTreeData = result.tree;
+                buildAndRenderTreeList(result.tree);
+                
+                // Setup dashboard
+                setupDashboardView(appMetadata);
+                
+                // Finalize UI transitions
+                extractionProgressBar.style.width = '100%';
+                extractionProgressText.innerText = '100%';
+                
+                setTimeout(() => {
+                    showLoading(false);
+                    uploadState.classList.add('hidden');
+                    dashboardState.classList.remove('hidden');
+                    resetAppBtn.classList.remove('hidden');
+                    selectTab('overview');
+                    addLog(`Successfully launched dashboard for ${appMetadata.app_name}!`, "success");
+                }, 400);
+
+            } catch (err) {
+                showLoading(false);
+                addLog(`Backend Processing Failed: ${err.message}`, "error");
+                alert(`백엔드 디컴파일 서버 오류가 발생하였습니다: ${err.message}\n로컬 클라이언트 모드로 전환합니다.`);
+                addLog("Emergency switching to Client-only Web Mode...");
+                appMode = 'client';
+                await processWithClientOnly(file);
+            }
+        }
+
+        // ============================================
+        // 2. CLIENT-ONLY DIRECT IN-BROWSER MODE
+        // ============================================
+        async function processWithClientOnly(file) {
+            addLog("Using high-performance Client-Side Javascript decoder...");
+            extractionProgressBar.style.width = '10%';
+            extractionProgressText.innerText = '10%';
+
+            try {
+                addLog("Parsing zip structures with JSZip...");
+                const zip = await JSZip.loadAsync(file, {
+                    metadata: true
+                });
+                clientZipInstance = zip;
+                
+                extractionProgressBar.style.width = '40%';
+                extractionProgressText.innerText = '40%';
+                addLog(`Extracted zip mapping metadata. Found ${Object.keys(zip.files).length} files!`);
+
+                // Scan files and isolate payload
+                let filesList = Object.keys(zip.files);
+                let appFolderPath = "";
+                
+                // Look for .app folder in list
+                for (const path of filesList) {
+                    const match = path.match(/(Payload\/[^\/]+\.app)\//);
+                    if (match) {
+                        appFolderPath = match[1];
+                        break;
+                    }
+                }
+
+                if (!appFolderPath) {
+                    // Try to find any directory ending with .app recursively
+                    for (const path of filesList) {
+                        const match = path.match(/([^\/]+\.app)\//);
+                        if (match) {
+                            appFolderPath = match[1];
+                            break;
+                        }
+                    }
+                }
+
+                if (!appFolderPath) {
+                    throw new Error("iOS 앱 번들 (.app) 디렉토리를 찾을 수 없습니다. 올바른 IPA 파일인지 확인하십시오.");
+                }
+
+                addLog(`Detected primary iOS bundle path: ${appFolderPath}`, "success");
+
+                // Parse Info.plist inside client-side zip
+                let infoPlistFile = zip.file(`${appFolderPath}/Info.plist`);
+                let info = {};
+                if (infoPlistFile) {
+                    addLog("Detected Info.plist. Decoding Apple Property List structure...");
+                    const arrayBuffer = await infoPlistFile.async("arraybuffer");
+                    
+                    if (plistParser) {
+                        try {
+                            info = plistParser(new Uint8Array(arrayBuffer));
+                            addLog("Successfully parsed XML/Binary Info.plist natively!", "success");
+                        } catch (e) {
+                            addLog(`Binary Plist parsing error: ${e.message}. Using regex fallback...`, "warn");
+                            info = fallbackPlistRegexParser(await infoPlistFile.async("text"));
+                        }
+                    } else {
+                        addLog("ESM plist-parser is missing. Using regex fallback...", "warn");
+                        info = fallbackPlistRegexParser(await infoPlistFile.async("text"));
+                    }
+                } else {
+                    addLog("Missing Info.plist in app payload bundle!", "error");
+                }
+
+                extractionProgressBar.style.width = '70%';
+                extractionProgressText.innerText = '70%';
+
+                // Framework Scanner
+                let framework = "Native (Swift/Objective-C)";
+                if (zip.file(`${appFolderPath}/main.jsbundle`) || zip.file(`${appFolderPath}/assets/main.jsbundle`)) {
+                    framework = "React Native";
+                } else if (zip.folder(`${appFolderPath}/flutter_assets`).length > 0) {
+                    framework = "Flutter";
+                } else if (zip.folder(`${appFolderPath}/www`).length > 0 || zip.folder(`${appFolderPath}/public`).length > 0) {
+                    framework = "Cordova / Capacitor / Ionic";
+                }
+
+                // Metadata assembler
+                const appName = info.CFBundleDisplayName || info.CFBundleName || appFolderPath.split("/").pop().replace(".app", "");
+                const bundleId = info.CFBundleIdentifier || "Unknown";
+                const versionShort = info.CFBundleShortVersionString || "Unknown";
+                const buildNum = info.CFBundleVersion || "Unknown";
+                const minOs = info.MinimumOSVersion || "Unknown";
+                const executableName = info.CFBundleExecutable || "";
+                const sdkName = info.DTSDKName || "Unknown";
+
+                // NS Usage descriptions for permissions
+                let permissions = [];
+                for (const [key, val] of Object.entries(info)) {
+                    if (key.startsWith("NS") && key.endsWith("UsageDescription")) {
+                        const cleanName = key.replace("NS", "").replace("UsageDescription", "").replace(/(\w)([A-Z])/g, '$1 $2');
+                        permissions.push({
+                            key: key,
+                            name: cleanName,
+                            description: typeof val === 'string' ? val : JSON.stringify(val)
+                        });
+                    }
+                }
+
+                appMetadata = {
+                    "app_dir": appFolderPath,
+                    "app_name": appName,
+                    "bundle_id": bundleId,
+                    "version": versionShort,
+                    "build_num": buildNum,
+                    "min_os": minOs,
+                    "sdk_name": sdkName,
+                    "framework": framework,
+                    "permissions": permissions,
+                    "executable_name": executableName,
+                    "app_dir_name": appFolderPath.split("/").pop()
+                };
+
+                // Filter zip files to compile tree relative to the .app folder
+                activeZipFiles = {};
+                allFilePathsList = [];
+                
+                const clientTreeData = [];
+                zip.folder(appFolderPath).forEach((relativePath, zipEntry) => {
+                    if (relativePath) {
+                        activeZipFiles[relativePath] = zipEntry;
+                        allFilePathsList.push(relativePath);
+                    }
+                });
+
+                // Generate hierarchical structured tree JSON
+                const treeJSON = buildClientTreeStructure(allFilePathsList);
+                currentTreeData = treeJSON;
+                buildAndRenderTreeList(treeJSON);
+
+                extractionProgressBar.style.width = '90%';
+                extractionProgressText.innerText = '90%';
+
+                // Setup layout
+                setupDashboardView(appMetadata);
+
+                // Look for AppIcon in files list to render on client!
+                const iconPathInZip = findAppIcon(allFilePathsList);
+                if (iconPathInZip && activeZipFiles[iconPathInZip]) {
+                    try {
+                        const iconBase64 = await activeZipFiles[iconPathInZip].async("base64");
+                        appIconPlaceholder.innerHTML = `<img src="data:image/png;base64,${iconBase64}" class="w-full h-full object-cover rounded-2xl" />`;
+                    } catch (e) {
+                        console.error("Failed to load icon", e);
+                    }
+                }
+
+                extractionProgressBar.style.width = '100%';
+                extractionProgressText.innerText = '100%';
+
+                setTimeout(() => {
+                    showLoading(false);
+                    uploadState.classList.add('hidden');
+                    dashboardState.classList.remove('hidden');
+                    resetAppBtn.classList.remove('hidden');
+                    selectTab('overview');
+                    addLog(`Success! Extracted and decompiled ${appName} in Client Sandbox!`, "success");
+                }, 400);
+
+            } catch (err) {
+                showLoading(false);
+                addLog(`Client Decoupling Engine Error: ${err.message}`, "error");
+                alert(`IPA 파일의 로컬 압축 해제 중 치명적인 오류가 발생하였습니다: ${err.message}`);
+            }
+        }
+
+        // Build hierarchical node objects for client-side lists
+        function buildClientTreeStructure(filePaths) {
+            const root = [];
+            
+            for (const path of filePaths) {
+                // Ignore directories themselves in the zip (end with /)
+                if (path.endsWith("/")) continue;
+                
+                const parts = path.split("/");
+                let currentLevel = root;
+                
+                for (let i = 0; i < parts.length; i++) {
+                    const part = parts[i];
+                    const isLast = (i === parts.length - 1);
+                    
+                    let existing = currentLevel.find(item => item.name === part);
+                    
+                    if (existing) {
+                        if (!isLast) {
+                            currentLevel = existing.children;
+                        }
+                    } else {
+                        if (isLast) {
+                            // File node
+                            const ext = part.substring(part.lastIndexOf('.')).toLowerCase();
+                            let file_type = "text";
+                            if ([".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".svg"].includes(ext)) {
+                                file_type = "image";
+                            } else if ([".plist", ".strings"].includes(ext)) {
+                                file_type = "plist";
+                            } else if ([".js", ".json", ".html", ".css", ".xml", ".txt", ".md", ".yaml", ".yml", ".sh", ".stringsdict"].includes(ext)) {
+                                file_type = "code";
+                            } else if (part === "main.jsbundle") {
+                                file_type = "code";
+                            } else {
+                                file_type = "other";
+                            }
+
+                            currentLevel.push({
+                                "name": part,
+                                "path": path,
+                                "type": "file",
+                                "file_type": file_type,
+                                "size": 0 // filled lazily if needed
+                            });
+                        } else {
+                            // Directory node
+                            const newFolder = {
+                                "name": part,
+                                "path": parts.slice(0, i + 1).join("/"),
+                                "type": "directory",
+                                "is_framework": part.endsWith(".framework"),
+                                "children": []
+                            };
+                            currentLevel.push(newFolder);
+                            currentLevel = newFolder.children;
+                        }
+                    }
+                }
+            }
+            
+            // Sort helper
+            function sortTree(nodes) {
+                nodes.sort((a, b) => {
+                    const aIsDir = a.type === 'directory' ? 0 : 1;
+                    const bIsDir = b.type === 'directory' ? 0 : 1;
+                    if (aIsDir !== bIsDir) return aIsDir - bIsDir;
+                    return a.name.localeCompare(b.name, undefined, {sensitivity: 'accent'});
+                });
+                for (const node of nodes) {
+                    if (node.children) sortTree(node.children);
+                }
+            }
+            sortTree(root);
+            return root;
+        }
+
+        // Highly robust regex-based plist fallback parser
+        function fallbackPlistRegexParser(text) {
+            const data = {};
+            try {
+                // Find basic key-value strings
+                const keyRegex = /<key>([^<]+)<\/key>\s*<string>([^<]+)<\/string>/g;
+                let match;
+                while ((match = keyRegex.exec(text)) !== null) {
+                    data[match[1]] = match[2];
+                }
+                
+                // Try array strings
+                const arrayKeyRegex = /<key>([^<]+)<\/key>\s*<array>([\s\S]*?)<\/array>/g;
+                while ((match = arrayKeyRegex.exec(text)) !== null) {
+                    const arrayVal = [];
+                    const strRegex = /<string>([^<]+)<\/string>/g;
+                    let strMatch;
+                    while ((strMatch = strRegex.exec(match[2])) !== null) {
+                        arrayVal.push(strMatch[1]);
+                    }
+                    data[match[1]] = arrayVal;
+                }
+            } catch (err) {
+                console.error("Plist regex parser crash", err);
+            }
+            return data;
+        }
+
+        // ============================================
+        // DASHBOARD COMPONENT INITIALIZER
+        // ============================================
+        function setupDashboardView(metadata) {
+            summaryAppName.innerText = metadata.app_name;
+            summaryBundleId.innerText = metadata.bundle_id;
+            summaryVersion.innerText = `${metadata.version} (Build ${metadata.build_num})`;
+            summaryFrameworkBadge.innerText = metadata.framework;
+            
+            // Badge design colors based on detected frameworks
+            if (metadata.framework.includes("React")) {
+                summaryFrameworkBadge.className = "text-[9px] px-1.5 py-0.5 rounded-md font-bold bg-blue-600/20 text-blue-400 border border-blue-500/20";
+            } else if (metadata.framework.includes("Flutter")) {
+                summaryFrameworkBadge.className = "text-[9px] px-1.5 py-0.5 rounded-md font-bold bg-cyan-600/20 text-cyan-400 border border-cyan-500/20";
+            } else if (metadata.framework.includes("Cordova")) {
+                summaryFrameworkBadge.className = "text-[9px] px-1.5 py-0.5 rounded-md font-bold bg-purple-600/20 text-purple-400 border border-purple-500/20";
+            } else {
+                summaryFrameworkBadge.className = "text-[9px] px-1.5 py-0.5 rounded-md font-bold bg-amber-600/20 text-amber-400 border border-amber-500/20";
+            }
+
+            // Big Dashboard Cards
+            dashboardFramework.innerText = metadata.framework;
+            dashboardBundleId.innerText = metadata.bundle_id;
+            dashboardVersion.innerText = `${metadata.version} (Build ${metadata.build_num})`;
+            dashboardMinOs.innerText = `iOS ${metadata.min_os}+`;
+
+            // Spec Info lists
+            metaExecutableName.innerText = metadata.executable_name || "Unknown";
+            metaSdkName.innerText = metadata.sdk_name || "Unknown";
+            metaFrameworkDetailed.innerText = metadata.framework;
+
+            // Render Permissions requested list
+            permissionsTableBody.innerHTML = '';
+            if (metadata.permissions && metadata.permissions.length > 0) {
+                metadata.permissions.forEach(item => {
+                    permissionsTableBody.innerHTML += `
+                        <tr class="hover:bg-slate-900/40 transition-colors">
+                            <td class="py-2.5 font-semibold text-slate-100 flex items-center gap-1.5">
+                                <i class="fa-solid fa-circle-dot text-[8px] text-amber-500"></i> ${item.name}
+                            </td>
+                            <td class="py-2.5 font-mono text-[10px] text-slate-400 select-all hidden sm:table-cell">${item.key}</td>
+                            <td class="py-2.5 text-slate-300 italic">"${item.description}"</td>
+                        </tr>
+                    `;
+                });
+            } else {
+                permissionsTableBody.innerHTML = `
+                    <tr>
+                        <td colspan="3" class="py-4 text-center text-slate-500">Info.plist에 정의된 보안 권한 요청 문구가 없습니다. (Native API를 사용하지 않거나, 자체 정의 라이브러리 탑재)</td>
+                    </tr>
+                `;
+            }
+
+            // Prepare Strings Panel initial view
+            stringsListArea.innerHTML = `
+                <div class="p-8 text-center flex flex-col items-center justify-center space-y-3">
+                    <div class="p-3 bg-amber-500/10 text-amber-500 text-xl rounded-full">
+                        <i class="fa-solid fa-signature"></i>
+                    </div>
+                    <div>
+                        <h4 class="text-xs font-bold text-slate-300">실행 바이너리 Strings 분석 준비 완료</h4>
+                        <p class="text-[11px] text-slate-500 mt-0.5">앱 분석 탐색기에서 <strong>${metadata.executable_name}</strong> 파일을 누르거나 아래 버튼을 클릭하여 기계어 내 문자열 추출을 가동하십시오.</p>
+                    </div>
+                    <button id="extractStringsBtnDirect" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs rounded-lg transition-all shadow-md flex items-center gap-1">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Strings 디컴파일 스캔 시작
+                    </button>
+                </div>
+            `;
+            
+            setTimeout(() => {
+                const btn = document.getElementById('extractStringsBtnDirect');
+                if (btn) {
+                    btn.addEventListener('click', () => {
+                        triggerStringsExtraction(metadata.executable_name);
+                    });
+                }
+            }, 100);
+        }
+
+        // Find largest/most-promising app icon in file structure
+        function findAppIcon(files) {
+            let iconFile = null;
+            let maxDimension = 0;
+            const iconRegex = /(AppIcon|Icon-|\/Icon|Icon|App-Icon|app_icon)[a-zA-Z0-9_\-@\.~]*\.png$/i;
+            
+            for (const path of files) {
+                if (iconRegex.test(path)) {
+                    let weight = 0;
+                    if (path.includes("1024")) weight = 1000;
+                    else if (path.includes("180")) weight = 180;
+                    else if (path.includes("120")) weight = 120;
+                    else if (path.includes("@3x")) weight = 90;
+                    else if (path.includes("@2x")) weight = 60;
+                    else weight = 10;
+                    
+                    if (!iconFile || weight > maxDimension) {
+                        iconFile = path;
+                        maxDimension = weight;
+                    }
+                }
+            }
+            return iconFile;
+        }
+
+        // ============================================
+        // DIRECTORY FILE TREE RENDER ENGINE (HYBRID)
+        // ============================================
+        let openDirectories = {}; // Keep track of open directories to survive updates
+
+        function buildAndRenderTreeList(treeNodes) {
+            fileTreeContainer.innerHTML = '';
+            totalFilesCount.innerText = `총 ${countFiles(treeNodes)}개 파일`;
+            
+            const listContainer = document.createElement('ul');
+            listContainer.className = "space-y-1.5 pl-1 select-none font-mono text-xs";
+            
+            renderNodeElements(treeNodes, listContainer, 0);
+            fileTreeContainer.appendChild(listContainer);
+        }
+
+        function countFiles(nodes) {
+            let count = 0;
+            for (const node of nodes) {
+                if (node.type === 'file') count++;
+                else if (node.type === 'directory' && node.children) {
+                    count += countFiles(node.children);
+                }
+            }
+            return count;
+        }
+
+        function renderNodeElements(nodes, parentElement, depth) {
+            nodes.forEach(node => {
+                const li = document.createElement('li');
+                li.className = "relative flex flex-col";
+                li.dataset.path = node.path;
+
+                const itemRow = document.createElement('div');
+                itemRow.className = "flex items-center justify-between py-1 px-1.5 rounded hover:bg-slate-800/60 cursor-pointer text-slate-300 hover:text-white transition-all select-none";
+                itemRow.style.paddingLeft = `${depth * 12 + 6}px`;
+
+                const labelDiv = document.createElement('div');
+                labelDiv.className = "flex items-center space-x-2 truncate min-w-0 pointer-events-none";
+
+                // Setup Custom Icons for files vs folders
+                let iconHTML = '';
+                if (node.type === 'directory') {
+                    const isOpen = !!openDirectories[node.path];
+                    iconHTML = isOpen 
+                        ? `<i class="fa-solid fa-folder-open text-amber-400 shrink-0"></i>` 
+                        : `<i class="fa-solid fa-folder text-amber-500 shrink-0"></i>`;
+                } else {
+                    if (node.file_type === 'image') {
+                        iconHTML = `<i class="fa-solid fa-file-image text-cyan-400 shrink-0"></i>`;
+                    } else if (node.file_type === 'plist') {
+                        iconHTML = `<i class="fa-solid fa-file-invoice text-emerald-400 shrink-0"></i>`;
+                    } else if (node.file_type === 'code') {
+                        if (node.name.endsWith('.js') || node.name === 'main.jsbundle') {
+                            iconHTML = `<i class="fa-brands fa-js text-yellow-400 shrink-0"></i>`;
+                        } else if (node.name.endsWith('.html')) {
+                            iconHTML = `<i class="fa-brands fa-html5 text-orange-500 shrink-0"></i>`;
+                        } else if (node.name.endsWith('.json')) {
+                            iconHTML = `<i class="fa-solid fa-code text-pink-400 shrink-0"></i>`;
+                        } else {
+                            iconHTML = `<i class="fa-solid fa-file-code text-indigo-400 shrink-0"></i>`;
+                        }
+                    } else if (node.name === appMetadata?.executable_name) {
+                        iconHTML = `<i class="fa-solid fa-gears text-rose-500 shrink-0"></i>`;
+                    } else {
+                        iconHTML = `<i class="fa-solid fa-file text-slate-400 shrink-0"></i>`;
+                    }
+                }
+
+                labelDiv.innerHTML = `${iconHTML}<span class="truncate ${node.name === appMetadata?.executable_name ? 'font-bold text-rose-300' : ''}">${node.name}</span>`;
+                itemRow.appendChild(labelDiv);
+
+                // Right tags or size details
+                if (node.type === 'file' && node.size) {
+                    const sizeSpan = document.createElement('span');
+                    sizeSpan.className = "text-[9px] text-slate-500 font-mono pl-2 shrink-0";
+                    sizeSpan.innerText = (node.size / 1024).toFixed(1) + " KB";
+                    itemRow.appendChild(sizeSpan);
+                } else if (node.is_framework) {
+                    const badge = document.createElement('span');
+                    badge.className = "text-[8px] bg-slate-800 text-slate-400 px-1 rounded border border-slate-700/50 shrink-0 font-bold uppercase";
+                    badge.innerText = "Framework";
+                    itemRow.appendChild(badge);
+                }
+
+                li.appendChild(itemRow);
+
+                // For Directories, render sub-ul
+                let childrenUl = null;
+                if (node.type === 'directory' && node.children && node.children.length > 0) {
+                    childrenUl = document.createElement('ul');
+                    childrenUl.className = "space-y-1 mt-1 transition-all duration-200 hidden";
+                    
+                    if (openDirectories[node.path]) {
+                        childrenUl.classList.remove('hidden');
+                    }
+                    
+                    renderNodeElements(node.children, childrenUl, depth + 1);
+                    li.appendChild(childrenUl);
+                }
+
+                // Event listener on click
+                itemRow.addEventListener('click', (e) => {
+                    if (node.type === 'directory') {
+                        // Toggle collapse
+                        const wasOpen = !!openDirectories[node.path];
+                        if (wasOpen) {
+                            openDirectories[node.path] = false;
+                            if (childrenUl) childrenUl.classList.add('hidden');
+                            itemRow.querySelector('i').className = "fa-solid fa-folder text-amber-500 shrink-0";
+                        } else {
+                            openDirectories[node.path] = true;
+                            if (childrenUl) childrenUl.classList.remove('hidden');
+                            itemRow.querySelector('i').className = "fa-solid fa-folder-open text-amber-400 shrink-0";
+                        }
+                    } else {
+                        // Highlight active row
+                        document.querySelectorAll('#fileTreeContainer div').forEach(row => {
+                            row.classList.remove('bg-emerald-500/10', 'text-emerald-400', 'border-l-2', 'border-emerald-500');
+                        });
+                        itemRow.classList.add('bg-emerald-500/10', 'text-emerald-400', 'border-l-2', 'border-emerald-500');
+                        
+                        loadFileToViewer(node);
+                    }
+                });
+
+                parentElement.appendChild(li);
+            });
+        }
+
+        // Fold/Unfold action buttons
+        document.getElementById('toggleAllFoldersBtn').addEventListener('click', () => {
+            openDirectories = {};
+            // Collapse all folders in GUI
+            document.querySelectorAll('#fileTreeContainer ul ul').forEach(ul => {
+                ul.classList.add('hidden');
+            });
+            document.querySelectorAll('#fileTreeContainer i.fa-folder-open').forEach(icon => {
+                icon.className = "fa-solid fa-folder text-amber-500 shrink-0";
+            });
+        });
+
+        // Quick File list filtering
+        fileSearchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            document.querySelectorAll('#fileTreeContainer li').forEach(li => {
+                const path = li.dataset.path.toLowerCase();
+                if (query === '' || path.includes(query)) {
+                    li.classList.remove('hidden');
+                    // auto expand parent ul if we searched something
+                    if (query !== '') {
+                        let parentUl = li.parentElement;
+                        while (parentUl && parentUl.tagName === 'UL') {
+                            parentUl.classList.remove('hidden');
+                            const parentLi = parentUl.parentElement;
+                            if (parentLi) {
+                                const dirRowIcon = parentLi.querySelector('div i');
+                                if (dirRowIcon && dirRowIcon.classList.contains('fa-folder')) {
+                                    dirRowIcon.className = "fa-solid fa-folder-open text-amber-400 shrink-0";
+                                }
+                            }
+                            parentUl = parentLi?.parentElement;
+                        }
+                    }
+                } else {
+                    li.classList.add('hidden');
+                }
+            });
+        });
+
+        // ============================================
+        // CORE FILE LOADER & VIEW INTEGRATIONS
+        // ============================================
+        async function loadFileToViewer(fileNode) {
+            activeFilePath = fileNode.path;
+            activeFileContent = null;
+            
+            // Switch mobile view to content on responsive screens
+            activeMobileView = 'content';
+            updateMobileLayout();
+            
+            activeFileBreadcrumb.innerText = `${appMetadata.app_dir_name}/${fileNode.path}`;
+            selectTab('viewer');
+            
+            viewerEmptyState.classList.add('hidden');
+            viewerActiveState.classList.remove('hidden');
+            
+            // Hide all sub-containers
+            codeViewContainer.classList.add('hidden');
+            imageViewContainer.classList.add('hidden');
+            plistViewContainer.classList.add('hidden');
+            fileUtilities.classList.add('hidden');
+            beautifyJsBtn.classList.add('hidden');
+
+            showLoading(true, "파일 분석 중...", `해당 파일(${fileNode.name})을 해킹하여 읽는 중입니다.`);
+
+            try {
+                if (appMode === 'backend') {
+                    // Fetch content from Python Backend API
+                    const url = `${apiHost}/api/file?path=${encodeURIComponent(fileNode.path)}`;
+                    const response = await fetch(url);
+                    if (!response.ok) {
+                        const err = await response.json();
+                        throw new Error(err.error || "Failed to load file content");
+                    }
+                    const data = await response.json();
+                    renderFileInViewer(data, fileNode.name);
+                } else {
+                    // Load directly from JSZip
+                    const zipEntry = activeZipFiles[fileNode.path];
+                    if (!zipEntry) {
+                        throw new Error("File not found in browser zip bundle");
+                    }
+
+                    if (fileNode.file_type === 'image') {
+                        // load as base64 data uri
+                        const base64Content = await zipEntry.async("base64");
+                        const ext = fileNode.name.substring(fileNode.name.lastIndexOf('.')).toLowerCase();
+                        let mime = "image/png";
+                        if (ext === '.jpg' || ext === '.jpeg') mime = "image/jpeg";
+                        else if (ext === '.gif') mime = "image/gif";
+                        else if (ext === '.svg') mime = "image/svg+xml";
+
+                        renderFileInViewer({
+                            "type": "image",
+                            "mime": mime,
+                            "content": `data:${mime};base64,${base64Content}`
+                        }, fileNode.name);
+                    } else if (fileNode.file_type === 'plist') {
+                        // plist parser
+                        const arrayBuffer = await zipEntry.async("arraybuffer");
+                        let parsedData = {};
+                        if (plistParser) {
+                            try {
+                                parsedData = plistParser(new Uint8Array(arrayBuffer));
+                            } catch (e) {
+                                // fallback
+                                parsedData = fallbackPlistRegexParser(await zipEntry.async("text"));
+                            }
+                        } else {
+                            parsedData = fallbackPlistRegexParser(await zipEntry.async("text"));
+                        }
+                        renderFileInViewer({
+                            "type": "plist",
+                            "content": parsedData
+                        }, fileNode.name);
+                    } else if (fileNode.name === appMetadata.executable_name) {
+                        // Native Mach-O compiled binary in client-side mode
+                        showLoading(false);
+                        const confirmExtract = confirm("선택하신 파일은 iOS 네이티브 실행 바이너리 기계어 파일입니다.\n클라이언트 모드에서 바이너리 크기가 크면 브라우저가 일시적으로 느려질 수 있습니다.\n문자열(Strings) 스캔을 실행하시겠습니까?");
+                        if (confirmExtract) {
+                            showLoading(true, "바이너리 해독 중...", "기계어 바이너리 텍스트 데이터를 문자열로 변환하고 있습니다.");
+                            const arrayBuffer = await zipEntry.async("arraybuffer");
+                            const u8 = new Uint8Array(arrayBuffer);
+                            const strings = extractStringsClient(u8);
+                            renderFileInViewer({
+                                "type": "strings",
+                                "content": strings,
+                                "filename": fileNode.name
+                            }, fileNode.name);
+                        } else {
+                            viewerEmptyState.classList.remove('hidden');
+                            viewerActiveState.classList.add('hidden');
+                        }
+                    } else {
+                        // Regular text files
+                        const textContent = await zipEntry.async("text");
+                        renderFileInViewer({
+                            "type": "text",
+                            "content": textContent
+                        }, fileNode.name);
+                    }
+                }
+            } catch (err) {
+                showLoading(false);
+                alert(`파일 로드 실패: ${err.message}`);
+                addLog(`File Load Crash (${fileNode.name}): ${err.message}`, "error");
+            }
+        }
+
+        // Unified rendering based on loaded payload type
+        function renderFileInViewer(filePayload, filename) {
+            showLoading(false);
+            fileUtilities.classList.remove('hidden');
+
+            if (filePayload.type === 'text') {
+                codeViewContainer.classList.remove('hidden');
+                
+                // Prism JS syntax highlighting selection based on file extension
+                const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+                let prismClass = 'language-javascript';
+                if (ext === '.html' || ext === '.xml') prismClass = 'language-markup';
+                else if (ext === '.css') prismClass = 'language-css';
+                else if (ext === '.json') prismClass = 'language-json';
+
+                codeViewerArea.className = prismClass;
+                codeViewerArea.textContent = filePayload.content;
+                activeFileContent = filePayload.content;
+
+                Prism.highlightElement(codeViewerArea);
+
+                // Show Format JS beautifier if it's main.jsbundle or ends with .js
+                if (filename === 'main.jsbundle' || ext === '.js') {
+                    beautifyJsBtn.classList.remove('hidden');
+                }
+            } 
+            else if (filePayload.type === 'image') {
+                imageViewContainer.classList.remove('hidden');
+                imageViewerElement.src = filePayload.content;
+                imageFilename.innerText = filename;
+                imageMime.innerText = filePayload.mime || "image/png";
+                activeFileContent = filePayload.content; // base64 string
+            } 
+            else if (filePayload.type === 'plist') {
+                plistViewContainer.classList.remove('hidden');
+                const jsonStr = JSON.stringify(filePayload.content, null, 2);
+                plistJsonArea.textContent = jsonStr;
+                activeFileContent = jsonStr;
+            }
+            else if (filePayload.type === 'strings') {
+                // We loaded executable binary, populate Strings tab!
+                currentExtractedBinaryStrings = filePayload.content;
+                renderStringsList(currentExtractedBinaryStrings);
+                selectTab('strings');
+                addLog(`Extracted ${currentExtractedBinaryStrings.length} print strings from Mach-O executable!`, "success");
+            }
+        }
+
+        // ============================================
+        // CLIENT-SIDE MACH-O STRINGS SCANNERS
+        // ============================================
+        function extractStringsClient(u8Array) {
+            // Read first 10MB to avoid freezing browser tab on huge binaries
+            const maxRead = 10 * 1024 * 1024;
+            const size = Math.min(u8Array.length, maxRead);
+            
+            const strings = [];
+            let current = [];
+            
+            for (let i = 0; i < size; i++) {
+                const b = u8Array[i];
+                if (b >= 32 && b <= 126) {
+                    current.push(String.fromCharCode(b));
+                } else {
+                    if (current.length >= 4) {
+                        strings.push(current.join(''));
+                    }
+                    current = [];
+                }
+            }
+            if (current.length >= 4) {
+                strings.push(current.join(''));
+            }
+
+            // Remove duplicates
+            const unique = [...new Set(strings)];
+            return unique;
+        }
+
+        // RENDER EXTRACTED STRINGS LIST (PAGINATED & SEARCHABLE)
+        function renderStringsList(stringsArray) {
+            stringsListArea.innerHTML = '';
+            
+            if (stringsArray.length === 0) {
+                stringsListArea.innerHTML = `<div class="p-4 text-center text-slate-500">추출된 문자열 데이터가 존재하지 않습니다.</div>`;
+                return;
+            }
+
+            // Limit to first 1000 items dynamically for DOM speed, search will filter full list
+            const searchVal = stringsSearchInput.value.toLowerCase().trim();
+            const filtered = searchVal === '' 
+                ? stringsArray 
+                : stringsArray.filter(s => s.toLowerCase().includes(searchVal));
+
+            if (filtered.length === 0) {
+                stringsListArea.innerHTML = `<div class="p-4 text-center text-slate-500">검색 조건에 맞는 문자열이 존재하지 않습니다.</div>`;
+                return;
+            }
+
+            // Render top 500 items, and show a counter
+            const maxRender = 500;
+            const itemsToRender = filtered.slice(0, maxRender);
+
+            itemsToRender.forEach((str, idx) => {
+                const escaped = str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                stringsListArea.innerHTML += `
+                    <div class="grid grid-cols-12 px-4 py-2 hover:bg-slate-900/30 transition-colors">
+                        <div class="col-span-2 text-slate-500 font-bold select-none">#${idx + 1}</div>
+                        <div class="col-span-10 text-amber-300/90 font-semibold break-all select-all">${escaped}</div>
+                    </div>
+                `;
+            });
+
+            if (filtered.length > maxRender) {
+                stringsListArea.innerHTML += `
+                    <div class="p-3 text-center bg-slate-900/50 text-[10px] text-slate-400 font-bold">
+                        -- 총 ${filtered.length}개 결과 중 상위 ${maxRender}개만 시각화되었습니다. 검색 필터를 활용하십시오. --
+                    </div>
+                `;
+            }
+        }
+
+        // Trigger strings extraction via click / tree node
+        async function triggerStringsExtraction(executableName) {
+            addLog(`Extracting binary strings from: ${executableName}`);
+            showLoading(true, "바이너리 리깅 디코딩 중...", "바이너리에 내장된 소스코드 흔적을 도출하고 있습니다.");
+            
+            try {
+                if (appMode === 'backend') {
+                    const response = await fetch(`${apiHost}/api/file?path=${encodeURIComponent(executableName)}`);
+                    if (!response.ok) {
+                        const err = await response.json();
+                        throw new Error(err.error || "Failed to parse binary");
+                    }
+                    const data = await response.json();
+                    renderFileInViewer(data, executableName);
+                } else {
+                    // client fallback
+                    const executableFile = activeZipFiles[executableName];
+                    if (!executableFile) {
+                        // find binary executable anywhere in zip if not directly matched
+                        let foundPath = "";
+                        for (const path of Object.keys(activeZipFiles)) {
+                            if (path.endsWith(`/${executableName}`) || path === executableName) {
+                                foundPath = path;
+                                break;
+                            }
+                        }
+                        if (!foundPath) throw new Error("바이너리 파일을 에셋 꾸러미에서 감지할 수 없습니다.");
+                        
+                        const arrayBuffer = await activeZipFiles[foundPath].async("arraybuffer");
+                        const strings = extractStringsClient(new Uint8Array(arrayBuffer));
+                        renderFileInViewer({
+                            "type": "strings",
+                            "content": strings,
+                            "filename": executableName
+                        }, executableName);
+                    } else {
+                        const arrayBuffer = await executableFile.async("arraybuffer");
+                        const strings = extractStringsClient(new Uint8Array(arrayBuffer));
+                        renderFileInViewer({
+                            "type": "strings",
+                            "content": strings,
+                            "filename": executableName
+                        }, executableName);
+                    }
+                }
+            } catch (err) {
+                showLoading(false);
+                alert(`바이너리 스캔에 실패하였습니다: ${err.message}`);
+                addLog(`Binary Extract Failure: ${err.message}`, "error");
+            }
+        }
+
+        // Real-time search inside extracted strings
+        stringsSearchInput.addEventListener('input', () => {
+            if (currentExtractedBinaryStrings.length > 0) {
+                renderStringsList(currentExtractedBinaryStrings);
+            }
+        });
+
+        // ============================================
+        // UTILITY CONTROLS: BEAUTIFY, COPY, DOWNLOAD, ZIP EXPORT
+        // ============================================
+        
+        // JS BEAUTIFIER ACTION (FOR REACT NATIVE BUNDLES)
+        beautifyJsBtn.addEventListener('click', () => {
+            if (!activeFileContent) return;
+            showLoading(true, "JavaScript 포맷 변경 중...", "미니파이된 소스코드를 가독성 높게 디버깅하고 있습니다.");
+            
+            setTimeout(() => {
+                try {
+                    // Use loaded js-beautify library
+                    const beautified = js_beautify(activeFileContent, {
+                        indent_size: 2,
+                        space_in_empty_paren: true
+                    });
+                    
+                    codeViewerArea.textContent = beautified;
+                    Prism.highlightElement(codeViewerArea);
+                    addLog("Successfully formatted JavaScript bundle code!", "success");
+                    beautifyJsBtn.classList.add('hidden'); // hide format button once done
+                } catch (err) {
+                    alert(`코드 정렬 실패: ${err.message}`);
+                } finally {
+                    showLoading(false);
+                }
+            }, 50);
+        });
+
+        // COPY TO CLIPBOARD
+        copyContentBtn.addEventListener('click', () => {
+            if (!activeFileContent) return;
+            navigator.clipboard.writeText(activeFileContent)
+                .then(() => {
+                    const originalText = copyContentBtn.innerHTML;
+                    copyContentBtn.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i> 복사 완료`;
+                    setTimeout(() => {
+                        copyContentBtn.innerHTML = originalText;
+                    }, 1500);
+                })
+                .catch(err => {
+                    alert('클립보드 복사 실패: ' + err);
+                });
+        });
+
+        // DOWNLOAD SINGLE FILE
+        downloadFileBtn.addEventListener('click', async () => {
+            if (!activeFilePath) return;
+            
+            try {
+                let blob;
+                if (appMode === 'backend') {
+                    // fetch raw binary or text
+                    const url = `${apiHost}/api/file?path=${encodeURIComponent(activeFilePath)}`;
+                    const response = await fetch(url);
+                    const data = await response.json();
+                    
+                    if (data.type === 'image') {
+                        // decode base64
+                        const b64 = data.content.split(',')[1];
+                        const binary = atob(b64);
+                        const array = [];
+                        for (let i = 0; i < binary.length; i++) array.push(binary.charCodeAt(i));
+                        blob = new Blob([new Uint8Array(array)], { type: data.mime });
+                    } else if (data.type === 'plist') {
+                        blob = new Blob([JSON.stringify(data.content, null, 2)], { type: "application/json" });
+                    } else {
+                        blob = new Blob([data.content], { type: "text/plain" });
+                    }
+                } else {
+                    // client-side
+                    const zipEntry = activeZipFiles[activeFilePath];
+                    blob = await zipEntry.async("blob");
+                }
+
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = activeFilePath.split('/').pop();
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                addLog(`Downloaded individual asset file: ${activeFilePath.split('/').pop()}`, "success");
+            } catch (err) {
+                alert("파일 다운로드에 실패했습니다: " + err.message);
+            }
+        });
+
+        // EXPORT ALL AS ZIP (EXCLUDING BULKY BINARY LIBRARIES)
+        exportAllCodeBtn.addEventListener('click', async () => {
+            showLoading(true, "소스코드 압축 꾸리는 중...", "에셋 및 디컴파일된 코드들을 하나의 ZIP 아카이브로 빌드 중입니다.");
+            
+            try {
+                const exportZip = new JSZip();
+                addLog("Starting batch export compile...");
+                
+                if (appMode === 'client' && clientZipInstance) {
+                    // Loop files and add text/code/images to new zip
+                    let exportedCount = 0;
+                    for (const [path, entry] of Object.entries(activeZipFiles)) {
+                        const isBulky = path.includes(".framework/") || path.includes("/Frameworks/") || path.endsWith(".dylib") || path.endsWith(appMetadata.executable_name);
+                        
+                        // Let's copy files under 5MB or non-bulky binaries
+                        if (!isBulky) {
+                            const data = await entry.async("uint8array");
+                            exportZip.file(path, data);
+                            exportedCount++;
+                        }
+                    }
+                    addLog(`Packed ${exportedCount} decompiled assets into bundle ZIP archive.`);
+                } else {
+                    // For backend, since we have the extracted folder locally, it is easier.
+                    // But wait, the browser can construct a zip of all searchable files we request,
+                    // or we can request backend to zip it.
+                    // A client-side zip creation of text/code files is highly clean!
+                    // Let's let the backend know or we can fetch files.
+                    // Actually, the client JS Zip engine can request the files in active files list or we can zip from server!
+                    // To be fast, we can request backend or construct client side.
+                    // Let's create an elegant download using JSZip for compatibility.
+                    alert("로컬 디컴파일된 원본 소스코드는 사용하시는 PC 내부의 다음 폴더에서 직접 복제 및 복사가 가능합니다:\n" + appMetadata.app_dir_name + "\n\n클라이언트 압축 다운로드를 개시합니다.");
+                    
+                    // We can crawl of what we found or generate a request.
+                    // Let's zip on client if they uploaded it
+                    if (clientZipInstance) {
+                        let exportedCount = 0;
+                        for (const [path, entry] of Object.entries(activeZipFiles)) {
+                            if (!path.includes(".framework/") && !path.endsWith(".dylib") && !path.endsWith(appMetadata.executable_name)) {
+                                const data = await entry.async("uint8array");
+                                exportZip.file(path, data);
+                                exportedCount++;
+                            }
+                        }
+                    } else {
+                        // Backend only but without zip instance? We can fall back to manual instructions or alert
+                        throw new Error("클라이언트 Zip 핸들러가 활성화되지 않았습니다. 백엔드 폴더를 사용하십시오.");
+                    }
+                }
+
+                const content = await exportZip.generateAsync({ type: "blob" });
+                const url = URL.createObjectURL(content);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${appMetadata.app_name}_decompiled_source.zip`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                showLoading(false);
+                addLog("Successfully downloaded decompiled archive ZIP!", "success");
+                
+            } catch (err) {
+                showLoading(false);
+                alert("일괄 다운로드 중 오류 발생: " + err.message);
+                addLog(`Export Zip Failed: ${err.message}`, "error");
+            }
+        });
+
+        // ============================================
+        // AI VIBE CODING UNIFIED CONTEXT GENERATOR
+        // ============================================
+        async function buildAiUnifiedContext() {
+            let contextText = "=====================================================================\\n";
+            contextText += "  IPA EXTRACTED CODEBASE CONTEXT FOR AI VIBE CODING\\n";
+            contextText += `  App Name  : ${appMetadata.app_name}\\n`;
+            contextText += `  Bundle ID : ${appMetadata.bundle_id}\\n`;
+            contextText += `  Version   : ${appMetadata.version} (Build ${appMetadata.build_num})\\n`;
+            contextText += `  Framework : ${appMetadata.framework}\\n`;
+            contextText += `  iOS SDK   : ${appMetadata.sdk_name}\\n`;
+            contextText += `  Min iOS   : iOS ${appMetadata.min_os}+\\n`;
+            contextText += `  Generated : ${new Date().toLocaleString()}\\n`;
+            contextText += "=====================================================================\\n\\n";
+
+            contextText += "=====================================================================\\n";
+            contextText += "  DIRECTORY TREE STRUCTURE\\n";
+            contextText += "=====================================================================\\n";
+            
+            if (appMode === 'client' && clientZipInstance) {
+                for (const path of Object.keys(activeZipFiles)) {
+                    if (!path.includes(".framework/") && !path.endsWith(".dylib") && path !== appMetadata.executable_name) {
+                        contextText += `- ${path}\\n`;
+                    }
+                }
+            } else {
+                allFilePathsList.forEach(path => {
+                    contextText += `- ${path}\\n`;
+                });
+            }
+            contextText += "\\n\\n";
+
+            addLog("AI Vibe Coding Context Builder started...");
+            
+            const codeExtensions = [".js", ".json", ".html", ".css", ".xml", ".plist", ".strings", ".stringsdict", ".md", ".txt", ".yaml", ".yml", ".sh"];
+            let filesProcessed = 0;
+
+            if (appMode === 'client' && clientZipInstance) {
+                for (const [path, entry] of Object.entries(activeZipFiles)) {
+                    const ext = path.substring(path.lastIndexOf('.')).toLowerCase();
+                    const filename = path.split('/').pop();
+                    const isCode = codeExtensions.includes(ext) || filename === "main.jsbundle";
+                    const isBulky = path.includes(".framework/") || path.includes("/Frameworks/") || path.endsWith(".dylib") || path.endsWith(appMetadata.executable_name);
+
+                    if (isCode && !isBulky) {
+                        contextText += `\\n\\n// =====================================================================\\n`;
+                        contextText += `// FILE PATH: ${path}\\n`;
+                        contextText += `// =====================================================================\\n\\n`;
+                        
+                        try {
+                            if (ext === '.plist' || ext === '.strings') {
+                                const arrayBuffer = await entry.async("arraybuffer");
+                                let parsedData = {};
+                                if (plistParser) {
+                                    try { parsedData = plistParser(new Uint8Array(arrayBuffer)); }
+                                    catch (e) { parsedData = fallbackPlistRegexParser(await entry.async("text")); }
+                                } else {
+                                    parsedData = fallbackPlistRegexParser(await entry.async("text"));
+                                }
+                                contextText += JSON.stringify(parsedData, null, 2);
+                            } else {
+                                let fileText = await entry.async("text");
+                                if (filename === 'main.jsbundle') {
+                                    try { fileText = js_beautify(fileText, { indent_size: 2 }); } catch (e) {}
+                                }
+                                contextText += fileText;
+                            }
+                            filesProcessed++;
+                        } catch (err) {
+                            contextText += `[Error reading file: ${err.message}]`;
+                        }
+                        contextText += "\\n";
+                    }
+                }
+            } else {
+                // Backend mode: Traverse tree recursively
+                showLoading(true, "AI 컨텍스트 수집 중...", "서버로부터 소스코드 파일들을 안전하게 병합하고 있습니다.");
+                
+                async function traverseAndCollect(nodes) {
+                    let collected = [];
+                    for (const node of nodes) {
+                        if (node.type === 'file') {
+                            const ext = node.name.substring(node.name.lastIndexOf('.')).toLowerCase();
+                            const isCode = codeExtensions.includes(ext) || node.name === "main.jsbundle" || node.file_type === 'plist' || node.file_type === 'code';
+                            if (isCode && !node.path.includes(".framework/") && !node.path.includes("/Frameworks/")) {
+                                collected.push(node);
+                            }
+                        } else if (node.type === 'directory' && node.children) {
+                            collected = collected.concat(await traverseAndCollect(node.children));
+                        }
+                    }
+                    return collected;
+                }
+
+                if (!currentTreeData) {
+                    throw new Error("No tree data available. Please reload.");
+                }
+                const codeFilesToFetch = await traverseAndCollect(currentTreeData);
+                
+                let count = 0;
+                for (const fileNode of codeFilesToFetch) {
+                    showLoading(true, "AI 컨텍스트 병합 중...", `소스코드 병합 진행 중: (${count + 1}/${codeFilesToFetch.length}) ${fileNode.name}`);
+                    contextText += `\\n\\n// =====================================================================\\n`;
+                    contextText += `// FILE PATH: ${fileNode.path}\\n`;
+                    contextText += `// =====================================================================\\n\\n`;
+                    
+                    try {
+                        const url = `${apiHost}/api/file?path=${encodeURIComponent(fileNode.path)}`;
+                        const response = await fetch(url);
+                        const data = await response.json();
+                        
+                        if (data.type === 'plist') {
+                            contextText += JSON.stringify(data.content, null, 2);
+                        } else {
+                            let text = data.content;
+                            if (fileNode.name === 'main.jsbundle') {
+                                try { text = js_beautify(text, { indent_size: 2 }); } catch(e) {}
+                            }
+                            contextText += text;
+                        }
+                        filesProcessed++;
+                    } catch (err) {
+                        contextText += `[Error fetching file: ${err.message}]`;
+                    }
+                    contextText += "\\n";
+                    count++;
+                }
+            }
+
+            showLoading(false);
+            addLog(`Merged ${filesProcessed} source files into a unified AI Context!`, "success");
+            return contextText;
+        }
+
+        // Clip board Copy handler
+        copyAiPromptBtn.addEventListener('click', async () => {
+            if (!appMetadata) return;
+            showLoading(true, "코드 가공 및 클립보드 복사 중...", "모든 원본 소스코드를 한 군데 모아 복사하고 있습니다.");
+            
+            try {
+                const unifiedCode = await buildAiUnifiedContext();
+                await navigator.clipboard.writeText(unifiedCode);
+                
+                const originalText = copyAiPromptBtn.innerHTML;
+                copyAiPromptBtn.innerHTML = `<i class="fa-solid fa-check text-emerald-400 animate-bounce"></i> 통합 복사 완료!`;
+                addLog("Successfully copied unified code context to clipboard!", "success");
+                alert("바이브코딩용 소스코드 전체가 복사되었습니다!\\n\\n클로드(Claude), ChatGPT, Cursor AI 등 대화창에 그대로 '붙여넣기(Ctrl+V)'하여 즉시 코딩을 시작해 보세요!");
+                
+                setTimeout(() => {
+                    copyAiPromptBtn.innerHTML = originalText;
+                }, 3000);
+            } catch (err) {
+                alert("통합 복사에 실패했습니다: " + err.message);
+                addLog(`Unified Context Copy Failed: ${err.message}`, "error");
+            } finally {
+                showLoading(false);
+            }
+        });
+
+        // Combined File Download handler
+        downloadAiPromptBtn.addEventListener('click', async () => {
+            if (!appMetadata) return;
+            showLoading(true, "통합 텍스트 파일 생성 중...", "모든 원본 소스코드를 텍스트 파일로 합성 중입니다.");
+            
+            try {
+                const unifiedCode = await buildAiUnifiedContext();
+                const blob = new Blob([unifiedCode], { type: "text/plain;charset=utf-8" });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${appMetadata.app_name}_unified_codebase_context.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                addLog("Successfully generated and downloaded unified text codebase context!", "success");
+            } catch (err) {
+                alert("통합 파일 다운로드 실패: " + err.message);
+                addLog(`Unified Context Download Failed: ${err.message}`, "error");
+            } finally {
+                showLoading(false);
+            }
+        });
+
+    </script>
+</body>
+</html>
